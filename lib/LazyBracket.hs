@@ -51,7 +51,8 @@ lazyGeneralBracket acquire release action = do
                         pure (resourceState, operation a)
             action
     let lazyResource = Resource {accessResource, controlResource}
-    -- We ignore the 'Resource' argument because we extract it from the 'MVar'.
+    -- We ignore the 'Resource' argument because we extract the unwrapped
+    -- version from the 'MVar'.
     let lazyRelease _ exitCase = do 
             action <- liftIO $ do
             -- we don't mask here, already provided by generalBracket
