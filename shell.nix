@@ -3,7 +3,9 @@ let
 in
 myNixPkgs.mkShell {
   nativeBuildInputs = with myNixPkgs; [
-    cabal-install # terminal app cabal
-    ghc # Haskell compiler
+    cabal-install 
+    ghc 
+    haskell-language-server
+    ormolu
   ];
 }
