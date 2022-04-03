@@ -16,12 +16,25 @@ module Main (main) where
 
 import Test.Tasty
 import Test.Tasty.HUnit
+import Data.IORef
+import LazyBracket
 
 tests :: TestTree
 tests =
   testGroup
     "All"
-    []
+    [
+        testCase "foo" foo
+    ]
+
+foo :: Assertion
+foo = do
+    ref <- newIORef (1::Int)
+    _ <- lazyBracket
+        (modifyIORef ref succ)
+        (\_ -> modifyIORef ref succ)
+        (\Resource {accessResource, controlResource} -> pure ())
+    pure ()
 
 main :: IO ()
 main = defaultMain tests
