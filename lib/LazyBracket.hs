@@ -4,13 +4,21 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
+-- | This module provides variants of the 'bracket' function that delay the
+-- acquisition of the resource until it's used for the first time. If
+-- the resource is never used, it will never be acquired.
+--
+-- To be even more lazy, certain kinds of operations on the resource do not
+-- trigger acquisition: instead, they are stashed and applied once the resource
+-- has been acquired for other reasons.
 module LazyBracket
-  ( 
-    -- * Lazy brackets.
+  ( -- * Lazy brackets that delay resource acquisition.
     lazyBracket,
     lazyGeneralBracket,
-    -- * Resource wrapper for lazy acquisition.
+
+    -- * Resource wrapper.
     Resource (..),
+
     -- * Re-exports.
     ExitCase (..),
   )
@@ -23,20 +31,20 @@ import Control.Monad.IO.Class
 
 -- | A wrapper type over resources that delays resource acquisition.
 data Resource a = Resource
-  { -- | Action to get hold of the resource. Will trigger resource acquisition 
+  { -- | Action to get hold of the resource. Will trigger resource acquisition
     -- and apply all stashed control operations the first time it's run.
     accessResource :: IO a,
     -- | Immediately apply a \"control\" operation to the underlying resource if
-    -- the resource has already been acquired, otherwise stash the operation in
+    -- the resource has already been acquired, otherwise stash the operation
     -- with the intention of applying it once the resource is eventually acquired.
-    -- If the resource is never acquired, stashed actions are discarded.
+    -- If the resource is never acquired, stashed operations are discarded.
     --
-    -- By \"control\" operations we mean operations that are not essential in and of 
-    -- themselves, only serve to modify the behaviour of operations that are actually 
+    -- By \"control\" operations we mean operations that are not essential in and of
+    -- themselves, only serve to modify the behaviour of operations that are actually
     -- essential, and can be omitted if no essential operations take place.
     --
     -- Some examples:
-    -- 
+    --
     -- For file handle resources, @hSetBuffering@ is a valid control
     -- operation, whereas actually writing bytes to the handle is not.
     --
@@ -45,29 +53,51 @@ data Resource a = Resource
     controlResource :: (a -> IO ()) -> IO ()
   }
 
-lazyBracket :: (MonadIO m, MonadMask m) => IO a 
-  -- ^ computation to run to acquire the resource
-  -> (a -> m ()) 
-  -- ^ computation to run to release the resource (if the resource has been acquired)
-  -> (Resource a -> m b) 
-  -- ^ computation to run in-between (might trigger resource acquisition)
-  -> m b -- returns the value from the in-between computation
-lazyBracket acquire release =
-  lazyGeneralBracket
-    acquire
-    (\a _ -> release a)
+-- | A version of 'Contro.Monad.Catch.bracket' for which the resource is not
+-- acquired at the beginning, but the first time it's used in the main callback.
+-- If the resource is never used, it won't be acquired.
+lazyBracket ::
+  (MonadIO m, MonadMask m) =>
+  -- | computation to run to acquire the resource
+  IO a ->
+  -- | computation to run to release the resource, in case it was acquired
+  (a -> m c) ->
+  -- | computation to run in-between (might trigger resource acquisition)
+  (Resource a -> m b) ->
+  -- | returns the value from the in-between computation
+  m b 
+lazyBracket acquire release action = do
+  (b, _) <-
+    lazyGeneralBracket
+      acquire
+      (\a _ -> release a)
+      action
+  pure b
 
 data ResourceState a
   = NotYetAcquired (a -> IO ())
   | AlreadyAcquired a
 
+-- | A version of 'Contro.Monad.Catch.generalBracket' for which the resource is not
+-- acquired at the beginning, but the first time it's used in the main callback.
+-- If the resource is never used, it won't be acquired.
+--
+-- The cleanup function has knowledge of how the main callback was exited: by
+-- normal completion, by a runtime exception, or aborted by other reasons.
+-- This can be useful when acquiring resources from resource pools,
+-- to decide whether to return the resource to the pool or to destroy it.
 lazyGeneralBracket ::
-  forall m a b.
+  forall m a b c.
   (MonadIO m, MonadMask m) =>
+  -- | computation to run to acquire the resource
   IO a ->
-  (a -> ExitCase b -> m ()) ->
+  -- | computation to run to release the resource, in case it was acquired
+  (a -> ExitCase b -> m c) ->
+  -- | computation to run in-between (might trigger resource acquisition)
   (Resource a -> m b) ->
-  m b
+  -- | returns the value from the in-between computation, and also of the
+  -- release computation, if it took place
+  m (b, Maybe c)
 lazyGeneralBracket acquire release action = do
   ref <- liftIO $ newMVar @(ResourceState a) (NotYetAcquired mempty)
   let accessResource = do
@@ -96,9 +126,8 @@ lazyGeneralBracket acquire release action = do
           -- we don't mask here, already provided by generalBracket
           modifyMVar ref \case
             NotYetAcquired _ -> do
-              pure (NotYetAcquired mempty, \_ -> pure ())
+              pure (NotYetAcquired mempty, \_ -> pure Nothing)
             AlreadyAcquired a -> do
-              pure (NotYetAcquired mempty, release a)
+              pure (NotYetAcquired mempty, fmap Just <$> release a)
         action exitCase
-  (b, ()) <- generalBracket (pure lazyResource) lazyRelease action
-  pure b
+  generalBracket (pure lazyResource) lazyRelease action

@@ -7,8 +7,8 @@ description:         A version of bracket which returns a lazily allocated
                      resource. The allocation happens when (if) the resource 
                      is accessed for the first time.
 
-                     Some control operations can be batched and applied once the
-                     resource is truly allocated, or skipped altogether if the
+                     Some control operations can be stashed and applied once the
+                     resource is allocated, or skipped altogether if the
                      resource is never allocated.
 license:             BSD-3-Clause
 license-file:        LICENSE
