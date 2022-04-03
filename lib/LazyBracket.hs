@@ -15,8 +15,8 @@ data Resource a = Resource
     controlResource :: (a -> IO ()) -> IO ()
   }
 
-lazyBracket :: (MonadIO m, MonadMask m) => IO a -> (a -> m c) -> (Resource a -> m b) -> m b
-lazyBracket acquire release = fmap fst . lazyGeneralBracket
+lazyBracket :: (MonadIO m, MonadMask m) => IO a -> (a -> m ()) -> (Resource a -> m b) -> m b
+lazyBracket acquire release = lazyGeneralBracket
     acquire
     (\a _ -> release a)
 
@@ -24,12 +24,12 @@ data ResourceState a =
     NotYetAcquired (a -> IO ())
     | AlreadyAcquired a
 
-lazyGeneralBracket :: forall m a b c.
+lazyGeneralBracket :: forall m a b.
   (MonadIO m, MonadMask m) =>
   IO a ->
-  (a -> ExitCase b -> m c) ->
+  (a -> ExitCase b -> m ()) ->
   (Resource a -> m b) ->
-  m (b, c)
+  m b
 lazyGeneralBracket acquire release action = do
     ref <- liftIO $ newMVar @(ResourceState a) (NotYetAcquired mempty)
     let accessResource = do
@@ -43,11 +43,23 @@ lazyGeneralBracket acquire release action = do
             operations resource -- no need to perform these inside the mask
             pure resource
     let controlResource operation = do
-            join $
+            action <- do
                 modifyMVarMasked ref \case
                     NotYetAcquired pendingOperations -> do
                         pure (NotYetAcquired (pendingOperations <> operation), mempty)
                     resourceState@(AlreadyAcquired a) -> do
                         pure (resourceState, operation a)
+            action
     let lazyResource = Resource {accessResource, controlResource}
-    generalBracket (pure lazyResource) _ _ 
+    -- We ignore the 'Resource' argument because we extract it from the 'MVar'.
+    let lazyRelease _ exitCase = do 
+            action <- liftIO $ do
+            -- we don't mask here, already provided by generalBracket
+                modifyMVar ref \case
+                    NotYetAcquired _ -> do
+                        pure (NotYetAcquired mempty, \_ -> pure ())
+                    AlreadyAcquired a -> do
+                        pure  (NotYetAcquired mempty, release a) 
+            action exitCase
+    (b, ()) <- generalBracket (pure lazyResource) lazyRelease action
+    pure b
