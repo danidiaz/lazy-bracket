@@ -4,7 +4,7 @@ name:                lazy-bracket
 version:             0.1.0.0
 synopsis:            A bracket with lazy resource allocation.
 description:         A version of bracket which returns a lazily allocated
-                     resource. The allocation happens when (and if) the resource 
+                     resource. The allocation happens when (if) the resource 
                      is accessed for the first time.
 
                      Some control operations can be batched and applied once the
