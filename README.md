@@ -4,7 +4,7 @@ Sometimes, when `bracket`ing some piece of code, the acquired resource won't be
 actually used:
 
 - Finding a result in an in-memory cache can mean that a database query is
-avoided, and that the database connection stays untouched. 
+avoided, and the database connection stays untouched. 
 
 - You might be providing some resource (say, a database connection) to every
 REST endpoint handler in your API, even if some handlers don't make use of the
