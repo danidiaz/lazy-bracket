@@ -1,14 +1,10 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneKindSignatures #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -32,25 +28,44 @@ data TestResourceState
   | Disposed
   deriving (Show, Eq)
 
+data TestOps = TestOpA | TestOpB deriving (Show, Eq)
+
+
 doesAcquire :: Assertion
 doesAcquire = do
   ref <- newIORef NotYetAcquired
-  let refMustBe expectedState = do
+  opsRef <- newIORef @[TestOps] []
+  let refMustBe msg expectedState = do
         testState <- readIORef ref
-        assertEqual "resource state"  expectedState testState
+        assertEqual msg expectedState testState
+  let opsRefMustBe msg expectedOpsState = do
+        opsState <- readIORef opsRef
+        assertEqual msg expectedOpsState opsState
   _ <-
     lazyBracket
       (writeIORef ref AlreadyAcquired)
       (\_ -> writeIORef ref Disposed)
       (\Resource {accessResource, controlResource} -> do 
-          refMustBe NotYetAcquired
+          refMustBe "not acquired at the beginning" NotYetAcquired
+          controlResource (\_ -> modifyIORef opsRef (<> [TestOpA]))
+          refMustBe "control op doesn't trigger acquisition" NotYetAcquired
+          opsRefMustBe "control op not executed before acquisition" []
           _ <- accessResource
-          refMustBe AlreadyAcquired
+          refMustBe "access to resource triggers acquisition" AlreadyAcquired
+          opsRefMustBe "access to resource triggers pending ops" [TestOpA]
+          writeIORef opsRef []
           _ <- accessResource
-          refMustBe AlreadyAcquired
+          opsRefMustBe "re-accessing the resource doesn't re-execute delayed control ops" []
+          controlResource (\_ -> modifyIORef opsRef (<> [TestOpB]))
+          opsRefMustBe "control ops when already acquired execute immediately" [TestOpB]
           pure ())
-  refMustBe Disposed
+  refMustBe "release function must run" Disposed
   pure ()
+
+-- TODO:
+-- test allocation only happens once
+-- test skipping allocation + control ops
+-- test exception-throwing 
 
 main :: IO ()
 main = defaultMain tests
