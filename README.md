@@ -1,22 +1,30 @@
 # lazy-bracket
 
-Sometimes, when `bracket`ing some piece of code, the acquired resource won't be
-actually used:
+Sometimes, when `bracket`ing some piece of code, the
+resource acquired by the `bracket` won't be actually used:
 
 - Finding a result in an in-memory cache can mean that a database query is
 avoided, and the database connection stays untouched. 
 
-- You might be providing some resource (say, a database connection) to every
+- You might be providing some resource (againg, think database connection) to every
 REST endpoint handler in your API, even if some handlers don't make use of the
-resource. And yet, treating these endpoints as special cases would be tedious.
+resource. And yet, treating these handlers as special cases would be tedious.
 
 In order to be more frugal and avoid unnecessary resource acquisitions, one
-possible approach is to delay the acquisition to the last possible moment, to
-the first time the resource is actually used. Even better: certain operations
-on the resource don't need to be applied immediately, and instead can wait
-until the resource is eventually acquired.
+possible approach is to delay the acquisition to 
+ the first time the resource
+is actually used, if it's used at all. 
 
-This package implements that approach.
+What's more, certain "control" operations
+on the resource don't need to be applied immediately, and instead can wait
+until the resource is eventually acquired, or be omitted altogether if the resource isn't acquired:
+
+- It's wasteful to acquire a file handle just to perform `hSetBuffering`, if we are not going to write to the handle.
+
+- It's wasteful to acquire a database connection just to begin a transaction, if we aren't going to perform any query.
+
+This package provides lazy versions of `bracket` for which resource acquisition
+is delayed until first use, and control operations are only applied once resources are acquired.
 
 ## Links
 
