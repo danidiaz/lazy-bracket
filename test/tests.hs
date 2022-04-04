@@ -22,7 +22,10 @@ tests =
   testGroup
     "All"
     [ testCase "doesAcquire" doesAcquire,
-      testCase "doesNotAcquireTwice" doesNotAcquireTwice
+      testCase "doesAcquireEx" doesAcquireEx,
+      testCase "doesNotAcquireTwice" doesNotAcquireTwice,
+      testCase "noAcquisition" noAcquisition,
+      testCase "noAcquisitionEx" noAcquisitionEx
     ]
 
 data TestResourceState
@@ -65,6 +68,34 @@ doesAcquire = do
   refMustBe "release function must run" Disposed
   pure ()
 
+data DummyEx = DummyEx deriving (Show, Eq)
+instance Exception DummyEx
+
+doesAcquireEx :: Assertion
+doesAcquireEx = do
+  ref <- newIORef NotYetAcquired
+  opsRef <- newIORef @[TestOps] []
+  let refMustBe msg expectedState = do
+          testState <- readIORef ref
+          assertEqual msg expectedState testState
+  e <- try @DummyEx do
+    _ <-
+        lazyBracket
+        (writeIORef ref AlreadyAcquired)
+        (\_ -> writeIORef ref Disposed)
+        ( \Resource {accessResource, controlResource} -> do
+            _ <- accessResource
+            throwIO DummyEx
+            pure ()
+        )
+    pure ()
+  case e of 
+      Left DummyEx -> do
+        refMustBe "release function must run" Disposed
+        pure ()
+      Right _ -> assertFailure "Exception should have bubbled up"
+
+
 doesNotAcquireTwice :: Assertion
 doesNotAcquireTwice = do
   let bombs = pure () : repeat (throwIO $ userError "boom!")
@@ -82,10 +113,54 @@ doesNotAcquireTwice = do
     )
   pure ()
 
--- TODO:
--- test allocation only happens once
--- test skipping allocation + control ops
--- test exception-throwing
+noAcquisition :: Assertion
+noAcquisition = do
+  ref <- newIORef NotYetAcquired
+  opsRef <- newIORef @[TestOps] []
+  let refMustBe msg expectedState = do
+        testState <- readIORef ref
+        assertEqual msg expectedState testState
+  let opsRefMustBe msg expectedOpsState = do
+        opsState <- readIORef opsRef
+        assertEqual msg expectedOpsState opsState
+  _ <-
+    lazyBracket
+      (throwIO (userError "should not run"))
+      (\_ -> writeIORef ref Disposed)
+      ( \Resource {accessResource, controlResource} -> do
+          controlResource (\_ -> modifyIORef opsRef (<> [TestOpA]))
+          pure ()
+      )
+  refMustBe "release function must not run" NotYetAcquired
+  opsRefMustBe "no ops should trigger" []
+  pure ()
+
+noAcquisitionEx :: Assertion
+noAcquisitionEx = do
+  e <- try @DummyEx do
+    ref <- newIORef NotYetAcquired
+    opsRef <- newIORef @[TestOps] []
+    let refMustBe msg expectedState = do
+            testState <- readIORef ref
+            assertEqual msg expectedState testState
+    let opsRefMustBe msg expectedOpsState = do
+            opsState <- readIORef opsRef
+            assertEqual msg expectedOpsState opsState
+    _ <-
+        lazyBracket
+        (throwIO (userError "should not run"))
+        (\_ -> writeIORef ref Disposed)
+        ( \Resource {accessResource, controlResource} -> do
+            controlResource (\_ -> modifyIORef opsRef (<> [TestOpA]))
+            throwIO DummyEx
+            pure ()
+        )
+    refMustBe "release function must not run" NotYetAcquired
+    opsRefMustBe "no ops should trigger" []
+    pure ()
+  case e of 
+      Left DummyEx -> pure ()
+      Right _ -> assertFailure "Exception should have bubbled up"
 
 main :: IO ()
 main = defaultMain tests
