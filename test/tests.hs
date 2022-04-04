@@ -1,3 +1,4 @@
+{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -10,6 +11,7 @@
 
 module Main (main) where
 
+import Control.Exception
 import Data.IORef
 import LazyBracket
 import Test.Tasty
@@ -19,7 +21,8 @@ tests :: TestTree
 tests =
   testGroup
     "All"
-    [ testCase "doesAcquire" doesAcquire
+    [ testCase "doesAcquire" doesAcquire,
+      testCase "doesNotAcquireTwice" doesNotAcquireTwice
     ]
 
 data TestResourceState
@@ -29,7 +32,6 @@ data TestResourceState
   deriving (Show, Eq)
 
 data TestOps = TestOpA | TestOpB deriving (Show, Eq)
-
 
 doesAcquire :: Assertion
 doesAcquire = do
@@ -45,7 +47,7 @@ doesAcquire = do
     lazyBracket
       (writeIORef ref AlreadyAcquired)
       (\_ -> writeIORef ref Disposed)
-      (\Resource {accessResource, controlResource} -> do 
+      ( \Resource {accessResource, controlResource} -> do
           refMustBe "not acquired at the beginning" NotYetAcquired
           controlResource (\_ -> modifyIORef opsRef (<> [TestOpA]))
           refMustBe "control op doesn't trigger acquisition" NotYetAcquired
@@ -58,14 +60,32 @@ doesAcquire = do
           opsRefMustBe "re-accessing the resource doesn't re-execute delayed control ops" []
           controlResource (\_ -> modifyIORef opsRef (<> [TestOpB]))
           opsRefMustBe "control ops when already acquired execute immediately" [TestOpB]
-          pure ())
+          pure ()
+      )
   refMustBe "release function must run" Disposed
+  pure ()
+
+doesNotAcquireTwice :: Assertion
+doesNotAcquireTwice = do
+  let bombs = pure () : repeat (throwIO $ userError "boom!")
+  bombsRef <- newIORef @[IO ()] bombs
+  let attempt = do
+        action <- atomicModifyIORef bombsRef \(b : bs) -> (bs, b)
+        action
+  lazyBracket
+    attempt
+    (\_ -> pure ())
+    ( \Resource {accessResource} -> do
+        _ <- accessResource
+        _ <- accessResource
+        pure ()
+    )
   pure ()
 
 -- TODO:
 -- test allocation only happens once
 -- test skipping allocation + control ops
--- test exception-throwing 
+-- test exception-throwing
 
 main :: IO ()
 main = defaultMain tests
