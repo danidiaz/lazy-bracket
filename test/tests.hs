@@ -27,6 +27,12 @@ tests =
         testCase "foo" foo
     ]
 
+data TestResourceState =
+        NotYetAcquired
+        | AlreadyAcquired
+        | ControlOpPerformed
+        | Disposed
+
 foo :: Assertion
 foo = do
     ref <- newIORef (1::Int)
