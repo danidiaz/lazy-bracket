@@ -15,6 +15,7 @@ module LazyBracket
   ( -- * Lazy brackets that delay resource acquisition.
     lazyBracket,
     lazyGeneralBracket,
+    lazyGeneralBracket_,
 
     -- * Resource wrapper.
     Resource (..),
@@ -67,12 +68,10 @@ lazyBracket ::
   -- | returns the value from the in-between computation
   m b 
 lazyBracket acquire release action = do
-  (b, _) <-
-    lazyGeneralBracket
-      acquire
-      (\a _ -> release a)
-      action
-  pure b
+  lazyGeneralBracket_
+    acquire
+    (\a _ -> release a)
+    action
 
 data ResourceState a
   = NotYetAcquired (a -> IO ())
@@ -131,3 +130,25 @@ lazyGeneralBracket acquire release action = do
               pure (NotYetAcquired mempty, fmap Just <$> release a)
         action exitCase
   generalBracket (pure lazyResource) lazyRelease action
+
+
+-- | Like 'lazyGeneralBracket', but doesn't return the result of the 
+-- cleanup.
+lazyGeneralBracket_ ::
+  forall m a b c.
+  (MonadIO m, MonadMask m) =>
+  -- | computation to run to acquire the resource
+  IO a ->
+  -- | computation to run to release the resource, in case it was acquired
+  (a -> ExitCase b -> m c) ->
+  -- | computation to run in-between (might trigger resource acquisition)
+  (Resource a -> m b) ->
+  -- | returns the value from the in-between computation.
+  m b
+lazyGeneralBracket_ acquire release action = do
+  (b, _) <-
+    lazyGeneralBracket
+      acquire
+      release
+      action
+  pure b
