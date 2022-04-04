@@ -220,19 +220,7 @@ lazyGeneralBracket_ acquire release action = do
 
 -- $setup
 --
--- >>> :set -XTypeApplications
--- >>> :set -XMultiParamTypeClasses
--- >>> :set -XImportQualifiedPost
--- >>> :set -XStandaloneKindSignatures
--- >>> :set -XNamedFieldPuns
--- >>> :set -XFunctionalDependencies
--- >>> :set -XFlexibleContexts
--- >>> :set -XDataKinds
 -- >>> :set -XBlockArguments
--- >>> :set -XFlexibleInstances
--- >>> :set -XTypeFamilies
--- >>> :set -XDeriveGeneric
--- >>> :set -XViewPatterns
--- >>> :set -XScopedTypeVariables
+-- >>> :set -XNamedFieldPuns
 -- >>> import LazyBracket
 -- >>> import Control.Exception
