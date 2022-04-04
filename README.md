@@ -6,9 +6,9 @@ resource acquired by the `bracket` won't be actually used:
 - Finding a result in an in-memory cache can mean that a database query is
 avoided, and the database connection stays untouched. 
 
-- You might be providing some resource (againg, think database connection) to every
+- You might be providing some resource (again, think database connection) to every
 REST endpoint handler in your API, even if some handlers don't make use of the
-resource. And yet, treating these handlers as special cases would be tedious.
+resource, because treating these handlers as special cases would be tedious.
 
 In order to be more frugal and avoid unnecessary resource acquisitions, one
 possible approach is to delay the acquisition to 

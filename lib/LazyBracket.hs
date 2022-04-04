@@ -31,6 +31,10 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 
 -- | A wrapper type over resources that delays resource acquisition.
+--
+-- Because one must be careful with the kinds of functions that are passed to 'controlResource',
+-- it might be a good idea to define convenience wrappers over 'Resource' with
+-- more restricted interfaces.
 data Resource a = Resource
   { -- | Action to get hold of the resource. Will trigger resource acquisition
     -- and apply all stashed control operations the first time it's run.
@@ -59,13 +63,13 @@ data Resource a = Resource
 -- If the resource is never used, it won't be acquired.
 lazyBracket ::
   (MonadIO m, MonadMask m) =>
-  -- | computation to run to acquire the resource
+  -- | Computation to run to acquire the resource.
   IO a ->
-  -- | computation to run to release the resource, in case it was acquired
+  -- | Computation to run to release the resource, in case it was acquired.
   (a -> m c) ->
-  -- | computation to run in-between (might trigger resource acquisition)
+  -- | Computation to run in-between (might trigger resource acquisition).
   (Resource a -> m b) ->
-  -- | returns the value from the in-between computation
+  -- | Returns the value from the in-between computation
   m b 
 lazyBracket acquire release action = do
   lazyGeneralBracket_
@@ -81,42 +85,43 @@ data ResourceState a
 -- acquired at the beginning, but the first time it's used in the main callback.
 -- If the resource is never used, it won't be acquired.
 --
--- The cleanup function has knowledge of how the main callback was exited: by
--- normal completion, by a runtime exception, or aborted by other reasons.
--- This can be useful when acquiring resources from resource pools,
--- to decide whether to return the resource to the pool or to destroy it.
 lazyGeneralBracket ::
   forall m a b c.
   (MonadIO m, MonadMask m) =>
-  -- | computation to run to acquire the resource
+  -- | Computation to run to acquire the resource
   IO a ->
-  -- | computation to run to release the resource, in case it was acquired
+  -- | Computation to run to release the resource, in case it was acquired
+  --
+  -- The release function has knowledge of how the main callback was exited: by
+  -- normal completion, by a runtime exception, or otherwise aborted.
+  -- This can be useful when acquiring resources from resource pools,
+  -- to decide whether to return the resource to the pool or to destroy it.
   (a -> ExitCase b -> m c) ->
-  -- | computation to run in-between (might trigger resource acquisition)
+  -- | Computation to run in-between (might trigger resource acquisition)
   (Resource a -> m b) ->
-  -- | returns the value from the in-between computation, and also of the
-  -- release computation, if it took place
+  -- | Returns the value from the in-between computation, and also of the
+  -- release computation, if it took place.
   m (b, Maybe c)
 lazyGeneralBracket acquire release action = do
   ref <- liftIO $ newMVar @(ResourceState a) (NotYetAcquired mempty)
   let accessResource = do
-        (resource, operations) <- do
+        (resource, pendingOperations) <- do
           modifyMVarMasked ref \case
             NotYetAcquired pendingOperations -> do
               resource <- acquire
               pure (AlreadyAcquired resource, (resource, pendingOperations))
             resourceState@(AlreadyAcquired a) -> do
               pure (resourceState, (a, mempty))
-        operations resource -- no need to perform these inside the mask
+        pendingOperations resource -- no need to perform these inside the mask
         pure resource
   let controlResource operation = do
-        action <- do
+        runNow <- do
           modifyMVarMasked ref \case
             NotYetAcquired pendingOperations -> do
               pure (NotYetAcquired (pendingOperations <> operation), mempty)
             resourceState@(AlreadyAcquired a) -> do
               pure (resourceState, operation a)
-        action
+        runNow
   let lazyResource = Resource {accessResource, controlResource}
   -- We ignore the 'Resource' argument because we extract the unwrapped
   -- version from the 'MVar'.
@@ -128,12 +133,14 @@ lazyGeneralBracket acquire release action = do
               pure (NotYetAcquired mempty, \_ -> pure Nothing)
             AlreadyAcquired a -> do
               pure (NotYetAcquired mempty, fmap Just <$> release a)
+        -- If we ran this inside the modifyMVar, an exception during release
+        -- would prevent resetting the state to NotYetAcquired. Do we want that?
         action exitCase
   generalBracket (pure lazyResource) lazyRelease action
 
 
--- | Like 'lazyGeneralBracket', but doesn't return the result of the 
--- cleanup.
+-- | Slightly simpler version of 'lazyGeneralBracket' that doesn't return the result of the 
+-- release computation.
 lazyGeneralBracket_ ::
   forall m a b c.
   (MonadIO m, MonadMask m) =>

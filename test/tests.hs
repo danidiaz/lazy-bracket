@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -10,37 +11,46 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE DataKinds #-}
 
 module Main (main) where
 
-import Test.Tasty
-import Test.Tasty.HUnit
 import Data.IORef
 import LazyBracket
+import Test.Tasty
+import Test.Tasty.HUnit
 
 tests :: TestTree
 tests =
   testGroup
     "All"
-    [
-        testCase "foo" foo
+    [ testCase "doesAcquire" doesAcquire
     ]
 
-data TestResourceState =
-        NotYetAcquired
-        | AlreadyAcquired
-        | ControlOpPerformed
-        | Disposed
+data TestResourceState
+  = NotYetAcquired
+  | AlreadyAcquired
+  | Disposed
+  deriving (Show, Eq)
 
-foo :: Assertion
-foo = do
-    ref <- newIORef (1::Int)
-    _ <- lazyBracket
-        (modifyIORef ref succ)
-        (\_ -> modifyIORef ref succ)
-        (\Resource {accessResource, controlResource} -> pure ())
-    pure ()
+doesAcquire :: Assertion
+doesAcquire = do
+  ref <- newIORef NotYetAcquired
+  let refMustBe expectedState = do
+        testState <- readIORef ref
+        assertEqual "resource state"  expectedState testState
+  _ <-
+    lazyBracket
+      (writeIORef ref AlreadyAcquired)
+      (\_ -> writeIORef ref Disposed)
+      (\Resource {accessResource, controlResource} -> do 
+          refMustBe NotYetAcquired
+          _ <- accessResource
+          refMustBe AlreadyAcquired
+          _ <- accessResource
+          refMustBe AlreadyAcquired
+          pure ())
+  refMustBe Disposed
+  pure ()
 
 main :: IO ()
 main = defaultMain tests
