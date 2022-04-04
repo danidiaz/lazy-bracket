@@ -8,9 +8,67 @@
 -- acquisition of the resource until it's used for the first time. If
 -- the resource is never used, it will never be acquired.
 --
+-- A trivial example. This bracket code with a faulty acquisition doesn't throw an exception because the
+-- resource is never accessed:
+--
+-- >>> :{
+--  lazyBracket 
+--    (throwIO (userError "oops")) 
+--    (\_ -> pure ()) 
+--    \Resource {} -> do 
+--      pure () 
+-- :}
+-- 
+-- But this code does:
+--
+-- >>> :{
+--  lazyBracket 
+--    (throwIO (userError "oops")) 
+--    (\_ -> pure ()) 
+--    \Resource {accessResource} -> do 
+--      _ <- accessResource
+--      pure () 
+-- :}
+-- *** Exception: user error (oops)
+--
 -- To be even more lazy, certain kinds of operations on the resource do not
 -- trigger acquisition: instead, they are stashed and applied once the resource
 -- has been acquired for other reasons.
+--
+-- Look at the sequence of ouput messages here:
+--
+-- >>> :{
+--  lazyBracket 
+--    (putStrLn "acquired!") 
+--    (\() -> putStrLn "released!") 
+--    \Resource {accessResource, controlResource} -> do 
+--      controlResource \() -> putStrLn "control op 1 - delayed"
+--      putStrLn "before acquiring"
+--      _ <- accessResource
+--      putStrLn "after acquiring"
+--      controlResource \() -> putStrLn "control op 2 - immediately executed"
+--      pure () 
+-- :}
+-- before acquiring
+-- acquired!
+-- control op 1 - delayed
+-- after acquiring
+-- control op 2 - immediately executed
+-- released!
+--
+-- If we never access the resource, the release function and the stashed
+-- operations are not executed:
+--
+-- >>> :{
+--  lazyBracket 
+--    (putStrLn "acquired!") 
+--    (\() -> putStrLn "released!") 
+--    \Resource {accessResource, controlResource} -> do 
+--      controlResource \() -> putStrLn "control op 1 - never happens"
+--      pure () 
+-- :}
+--
+--
 module LazyBracket
   ( -- * Lazy brackets that delay resource acquisition.
     lazyBracket,
@@ -159,3 +217,22 @@ lazyGeneralBracket_ acquire release action = do
       release
       action
   pure b
+
+-- $setup
+--
+-- >>> :set -XTypeApplications
+-- >>> :set -XMultiParamTypeClasses
+-- >>> :set -XImportQualifiedPost
+-- >>> :set -XStandaloneKindSignatures
+-- >>> :set -XNamedFieldPuns
+-- >>> :set -XFunctionalDependencies
+-- >>> :set -XFlexibleContexts
+-- >>> :set -XDataKinds
+-- >>> :set -XBlockArguments
+-- >>> :set -XFlexibleInstances
+-- >>> :set -XTypeFamilies
+-- >>> :set -XDeriveGeneric
+-- >>> :set -XViewPatterns
+-- >>> :set -XScopedTypeVariables
+-- >>> import LazyBracket
+-- >>> import Control.Exception
