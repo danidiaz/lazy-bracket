@@ -13,7 +13,7 @@
 --
 -- >>> :{
 --  lazyBracket 
---    (throwIO (userError "oops")) 
+--    (Control.Exception.throwIO (userError "oops")) 
 --    (\_ -> pure ()) 
 --    \Resource {} -> do 
 --      pure () 
@@ -22,14 +22,17 @@
 -- But this code does:
 --
 -- >>> :{
---  lazyBracket 
---    (throwIO (userError "oops")) 
---    (\_ -> pure ()) 
---    \Resource {accessResource} -> do 
---      _ <- accessResource
---      pure () 
+--  do
+--    e <- lazyBracket 
+--           (Control.Exception.throwIO (userError "oops")) 
+--           (\_ -> pure ()) 
+--           \Resource {accessResource} -> do 
+--             _ <- accessResource
+--             pure () 
+--         & Control.Exception.try @IOException 
+--    print $ isLeft e
 -- :}
--- *** Exception: user error (oops)
+-- True
 --
 -- To be even more lazy, certain kinds of operations on the resource do not
 -- trigger acquisition: instead, they are stashed and applied once the resource
@@ -222,5 +225,9 @@ lazyGeneralBracket_ acquire release action = do
 --
 -- >>> :set -XBlockArguments
 -- >>> :set -XNamedFieldPuns
+-- >>> :set -XTypeApplications
 -- >>> import LazyBracket
--- >>> import Control.Exception
+-- >>> import qualified Control.Exception
+-- >>> import Control.Exception (IOException)
+-- >>> import Data.Function ((&))
+-- >>> import Data.Either (isRight)
