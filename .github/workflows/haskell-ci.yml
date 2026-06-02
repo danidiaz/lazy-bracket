@@ -24,9 +24,15 @@ jobs:
             compilerVersion: 9.10.1
             setup-method: ghcup
             allow-failure: false
-          - compiler: ghc-9.12.2
+          # removed because of a difference in exception display
+          # - compiler: ghc-9.12.2
+          #   compilerKind: ghc
+          #   compilerVersion: 9.12.2
+          #   setup-method: ghcup
+          #   allow-failure: false
+          - compiler: ghc-9.14.1
             compilerKind: ghc
-            compilerVersion: 9.12.2
+            compilerVersion: 9.14.1
             setup-method: ghcup
             allow-failure: false
       fail-fast: false
